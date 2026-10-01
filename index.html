@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="zh-TW" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>豐收記帳 WealthFlow iOS</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        ios: {
+                            bgLight: '#F2F2F7',
+                            cardLight: '#FFFFFF',
+                            bgDark: '#000000',
+                            cardDark: '#1C1C1E',
+                            cardDarkSecondary: '#2C2C2E',
+                            blue: '#007AFF',
+                            green: '#34C759',
+                            red: '#FF3B30',
+                            orange: '#FF9500',
+                            purple: '#AF52DE',
+                            grayText: '#8E8E93',
+                            separatorDark: '#38383A',
+                            separatorLight: '#E5E5EA'
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['-apple-system', 'BlinkMacSystemFont', '"SF Pro Display"', '"SF Pro Text"', '"Helvetica Neue"', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- JsBarcode CDN for E-Invoice generation -->
+    <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+
+    <style>
+        body {
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", sans-serif;
+        }
+
+        /* Hide scrollbars for native app experience */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        /* Glassmorphism blur effects */
+        .ios-blur {
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+        }
+
+        /* Active click/tap feedback */
+        .ios-btn-press:active {
+            opacity: 0.7;
+            transform: scale(0.97);
+            transition: all 0.1s ease;
+        }
+
+        /* Taiwan Stock convention: Red for Gain, Green for Loss */
+        .tw-gain { color: #FF3B30; }
+        .tw-loss { color: #34C759; }
+
+        @keyframes slideUp {
+            from { transform: translateY(100%); }
+            to { transform: translateY(0); }
+        }
+        .animate-slide-up {
+            animation: slideUp 0.25s cubic-bezier(0.1, 0.9, 0.2, 1);
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex justify-center items-center p-0 md:p-6 overflow-x-hidden">
+
+    <!-- iPhone Device Frame for Desktop, Fullscreen on Mobile -->
+    <div id="app-container" class="w-full max-w-md h-[100vh] md:h-[852px] bg-ios-bgLight dark:bg-ios-bgDark text-slate-900 dark:text-white flex flex-col justify-between relative overflow-hidden md:rounded-[50px] md:shadow-[0_25px_60px_-15px_rgba(0,0,0,0.8)] border-0 md:border-[8px] border-slate-800 transition-colors duration-300">
+
+        <!-- Dynamic Notch Top Header -->
+        <div class="hidden md:flex justify-center pt-2 pb-1 z-50 absolute top-0 w-full pointer-events-none">
+            <div class="w-28 h-6 bg-black rounded-full flex items-center justify-between px-2.5">
+                <div class="w-2.5 h-2.5 bg-slate-900 rounded-full"></div>
+                <div class="w-2.5 h-2.5 bg-blue-950/80 rounded-full flex items-center justify-center">
+                    <div class="w-1 h-1 bg-blue-600 rounded-full"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- iOS Status Bar Bar Header -->
+        <div class="pt-3 px-6 flex justify-between items-center text-xs font-semibold z-40 shrink-0">
+            <span id="clock" class="tracking-tight">09:41</span>
+            <div class="flex items-center space-x-2.5 text-xs">
+                <button onclick="toggleDarkMode()" class="text-xs px-2 py-0.5 rounded-full bg-slate-200 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 ios-btn-press pointer-events-auto">
+                    <i id="theme-icon" class="fa-solid fa-moon"></i>
+                </button>
+                <i class="fa-solid fa-signal"></i>
+                <i class="fa-solid fa-wifi"></i>
+                <i class="fa-solid fa-battery-full text-sm"></i>
+            </div>
+        </div>
+
+        <!-- Main Scrollable Content Area -->
+        <main class="flex-1 overflow-y-auto no-scrollbar px-4 pt-2 pb-24 relative" id="main-content">
+
+            <!-- TAB 1: 記帳 (EXPENSE & INCOME) -->
+            <section id="tab-records" class="tab-page space-y-4">
+                <div class="flex justify-between items-end pt-2 pb-1">
+                    <div>
+                        <p class="text-xs text-ios-grayText font-medium uppercase tracking-wider">WealthFlow 記帳</p>
+                        <h1 class="text-2xl font-bold tracking-tight">收支總覽</h1>
+                    </div>
+                    <button onclick="openAddModal()" class="w-10 h-10 rounded-full bg-ios-blue text-white flex items-center justify-center shadow-lg ios-btn-press">
+                        <i class="fa-solid fa-plus text-lg"></i>
+                    </button>
+                </div>
+
+                <!-- Monthly Summary Card -->
+                <div class="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl p-4 text-white shadow-md relative overflow-hidden">
+                    <div class="absolute -right-4 -bottom-4 opacity-15 text-8xl">
+                        <i class="fa-solid fa-wallet"></i>
+                    </div>
+                    <div class="text-xs font-medium text-blue-100 opacity-90">本月結餘</div>
+                    <div class="text-3xl font-extrabold mt-1 tracking-tight" id="monthly-net">$38,450</div>
+
+                    <div class="grid grid-cols-2 gap-2 mt-4 pt-3 border-t border-white/15">
+                        <div>
+                            <span class="text-[11px] text-blue-100/80 block">總收入</span>
+                            <span class="text-sm font-semibold text-emerald-300" id="monthly-income">+$65,000</span>
+                        </div>
+                        <div>
+                            <span class="text-[11px] text-blue-100/80 block">總支出</span>
+                            <span class="text-sm font-semibold text-rose-300" id="monthly-expense">-$26,550</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Account Filter Pills -->
+                <div class="flex space-x-2 overflow-x-auto no-scrollbar py-1">
+                    <button class="px-3 py-1.5 rounded-full text-xs font-medium bg-ios-blue text-white shrink-0">全部帳戶</button>
+                    <button class="px-3 py-1.5 rounded-full text-xs font-medium bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 shrink-0">現金 ($4,200)</button>
+                    <button class="px-3 py-1.5 rounded-full text-xs font-medium bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 shrink-0">國泰世華 ($128,500)</button>
+                    <button class="px-3 py-1.5 rounded-full text-xs font-medium bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 shrink-0">玉山信用卡 (-$12,400)</button>
+                </div>
+
+                <!-- Transaction List -->
+                <div class="space-y-3 pt-1" id="transaction-list-container">
+                    <!-- Dynamic Items -->
+                </div>
+            </section>
+
+            <!-- TAB 2: 固定收支 (RECURRING BILLS) -->
+            <section id="tab-recurring" class="tab-page hidden space-y-4">
+                <div class="flex justify-between items-end pt-2 pb-1">
+                    <div>
+                        <p class="text-xs text-ios-grayText font-medium uppercase tracking-wider">自動化理財</p>
+                        <h1 class="text-2xl font-bold tracking-tight">固定收支</h1>
+                    </div>
+                </div>
+
+                <!-- Monthly Auto-deduction Overview Card -->
+                <div class="bg-ios-cardLight dark:bg-ios-cardDark rounded-2xl p-4 shadow-sm border border-zinc-200 dark:border-zinc-800/80 flex items-center justify-between">
+                    <div>
+                        <span class="text-xs text-ios-grayText block">每月固定預估扣款</span>
+                        <span class="text-xl font-bold text-rose-500" id="recurring-total-expense">-$22,588</span>
+                    </div>
+                    <div class="text-right">
+                        <span class="text-xs text-ios-grayText block">每月固定收入</span>
+                        <span class="text-xl font-bold text-emerald-500" id="recurring-total-income">+$65,000</span>
+                    </div>
+                </div>
+
+                <div class="space-y-2">
+                    <h2 class="text-xs font-semibold text-ios-grayText uppercase tracking-wider px-1">定期扣款與入帳項目</h2>
+                    <div class="bg-ios-cardLight dark:bg-ios-cardDark rounded-2xl divide-y divide-zinc-200 dark:divide-ios-separatorDark overflow-hidden shadow-sm border border-zinc-200 dark:border-zinc-800/80" id="recurring-items-container">
+                        <!-- Dynamic Items -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 3: 股票存股 (STOCK PORTFOLIO) -->
+            <section id="tab-stocks" class="tab-page hidden space-y-4">
+                <div class="flex justify-between items-end pt-2 pb-1">
+                    <div>
+                        <p class="text-xs text-ios-grayText font-medium uppercase tracking-wider">資產與投資</p>
+                        <h1 class="text-2xl font-bold tracking-tight">股票存股</h1>
+                    </div>
+                    <button onclick="openStockModal()" class="w-9 h-9 rounded-full bg-zinc-200 dark:bg-zinc-800 text-ios-blue flex items-center justify-center ios-btn-press">
+                        <i class="fa-solid fa-plus"></i>
+                    </button>
+                </div>
+
+                <!-- Stock Summary Dashboard -->
+                <div class="bg-ios-cardLight dark:bg-ios-cardDark rounded-2xl p-4 shadow-sm border border-zinc-200 dark:border-zinc-800/80 space-y-3">
+                    <div>
+                        <span class="text-xs text-ios-grayText font-medium">庫存總市值 (TWD)</span>
+                        <div class="text-3xl font-black mt-0.5" id="stock-total-val">$1,703,000</div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-2 pt-2 border-t border-zinc-100 dark:border-zinc-800">
+                        <div>
+                            <span class="text-xs text-ios-grayText block">未實現總損益</span>
+                            <span class="text-base font-bold tw-gain" id="stock-total-profit">+$473,000 (+38.5%)</span>
+                        </div>
+                        <div>
+                            <span class="text-xs text-ios-grayText block">預估年被動股利收入</span>
+                            <span class="text-base font-bold text-amber-500" id="stock-total-dividend">$47,600</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Stock List -->
+                <div class="space-y-2">
+                    <div class="flex justify-between items-center px-1">
+                        <h2 class="text-xs font-semibold text-ios-grayText uppercase tracking-wider">庫存明細</h2>
+                        <span class="text-[11px] text-ios-blue">已連線證券資訊</span>
+                    </div>
+                    <div class="space-y-2.5" id="stock-list-container">
+                        <!-- Dynamic Stock Holdings -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 4: 載具發票 (E-INVOICE BARCODE) -->
+            <section id="tab-invoice" class="tab-page hidden space-y-4">
+                <div class="flex justify-between items-end pt-2 pb-1">
+                    <div>
+                        <p class="text-xs text-ios-grayText font-medium uppercase tracking-wider">財政部電子發票</p>
+                        <h1 class="text-2xl font-bold tracking-tight">手機載具條碼</h1>
+                    </div>
+                    <button onclick="showInvoiceSettings()" class="text-ios-blue text-sm font-medium">變更載具</button>
+                </div>
+
+                <!-- High-contrast E-Invoice Barcode Card -->
+                <div class="bg-white rounded-3xl p-6 text-black text-center shadow-xl border border-zinc-200 relative overflow-hidden">
+                    <div class="flex justify-between items-center text-xs font-bold text-zinc-400 mb-2">
+                        <span>手機條碼</span>
+                        <span id="barcode-code-display">/AB12345</span>
+                    </div>
+
+                    <!-- Barcode Display SVG Container -->
+                    <div class="w-full flex justify-center py-2 bg-white rounded-xl">
+                        <svg id="barcode-svg" class="w-full h-24"></svg>
+                    </div>
+
+                    <div class="mt-3 flex items-center justify-between text-xs text-zinc-500 bg-zinc-100 rounded-xl px-3 py-2">
+                        <span><i class="fa-solid fa-sun text-amber-500 mr-1.5"></i>結帳掃描專用</span>
+                        <button onclick="toggleMaxBrightness()" id="bright-btn" class="font-bold text-ios-blue hover:underline">螢幕增亮</button>
+                    </div>
+                </div>
+
+                <!-- E-Invoice Feed -->
+                <div class="space-y-2">
+                    <div class="flex justify-between items-center px-1">
+                        <h2 class="text-xs font-semibold text-ios-grayText uppercase tracking-wider">發票自動同步紀錄</h2>
+                        <button onclick="syncInvoices()" class="text-xs text-ios-blue flex items-center gap-1">
+                            <i class="fa-solid fa-arrows-rotate text-[10px]"></i> 同步載具
+                        </button>
+                    </div>
+
+                    <div class="bg-ios-cardLight dark:bg-ios-cardDark rounded-2xl divide-y divide-zinc-200 dark:divide-ios-separatorDark shadow-sm border border-zinc-200 dark:border-zinc-800/80" id="invoice-feed-container">
+                        <!-- Dynamic Invoice Feed -->
+                    </div>
+                </div>
+            </section>
+
+        </main>
+
+        <!-- iOS Bottom Tab Bar Navigation -->
+        <nav class="absolute bottom-0 left-0 right-0 h-20 bg-ios-bgLight/80 dark:bg-ios-bgDark/80 ios-blur border-t border-zinc-200 dark:border-ios-separatorDark flex justify-around items-start pt-2 px-2 z-40">
+            <button onclick="switchTab('records')" id="nav-records" class="nav-item flex flex-col items-center w-16 text-ios-blue transition-colors">
+                <i class="fa-solid fa-receipt text-xl"></i>
+                <span class="text-[10px] mt-1 font-medium">記帳</span>
+            </button>
+            <button onclick="switchTab('recurring')" id="nav-recurring" class="nav-item flex flex-col items-center w-16 text-ios-grayText hover:text-ios-blue transition-colors">
+                <i class="fa-solid fa-calendar-check text-xl"></i>
+                <span class="text-[10px] mt-1 font-medium">固定收支</span>
+            </button>
+            <button onclick="switchTab('stocks')" id="nav-stocks" class="nav-item flex flex-col items-center w-16 text-ios-grayText hover:text-ios-blue transition-colors">
+                <i class="fa-solid fa-chart-line text-xl"></i>
+                <span class="text-[10px] mt-1 font-medium">股票存股</span>
+            </button>
+            <button onclick="switchTab('invoice')" id="nav-invoice" class="nav-item flex flex-col items-center w-16 text-ios-grayText hover:text-ios-blue transition-colors">
+                <i class="fa-solid fa-qrcode text-xl"></i>
+                <span class="text-[10px] mt-1 font-medium">載具發票</span>
+            </button>
+        </nav>
+
+        <!-- Bottom Home Indicator -->
+        <div class="absolute bottom-1 left-1/2 -translate-x-1/2 w-32 h-1 bg-zinc-400 dark:bg-zinc-600 rounded-full z-50 pointer-events-none"></div>
+
+        <!-- Add Expense/Income Modal -->
+        <div id="add-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end justify-center hidden">
+            <div class="w-full max-w-md bg-ios-cardLight dark:bg-ios-cardDark rounded-t-3xl p-5 space-y-4 animate-slide-up border-t border-zinc-700">
+                <div class="flex justify-between items-center">
+                    <h3 class="text-lg font-bold">新增交易紀錄</h3>
+                    <button onclick="closeAddModal()" class="w-8 h-8 rounded-full bg-zinc-200 dark:bg-zinc-800 text-zinc-500 flex items-center justify-center">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+
+                <!-- Income / Expense Toggle Segmented Control -->
+                <div class="grid grid-cols-2 bg-zinc-200 dark:bg-zinc-800 p-1 rounded-xl text-xs font-semibold">
+                    <button id="type-expense-btn" onclick="setTxType('expense')" class="py-1.5 rounded-lg bg-white dark:bg-zinc-700 shadow-sm text-center">支出</button>
+                    <button id="type-income-btn" onclick="setTxType('income')" class="py-1.5 rounded-lg text-center text-ios-grayText">收入</button>
+                </div>
+
+                <!-- Input fields -->
+                <div class="space-y-3">
+                    <div>
+                        <label class="text-xs text-ios-grayText">金額</label>
+                        <div class="flex items-center text-2xl font-bold border-b border-zinc-300 dark:border-zinc-700 py-1">
+                            <span class="mr-1 text-ios-blue">$</span>
+                            <input id="input-amount" type="number" placeholder="0" class="w-full bg-transparent outline-none font-bold">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="text-xs text-ios-grayText">類別</label>
+                            <select id="input-category" class="w-full mt-1 p-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-sm outline-none">
+                                <option value="餐飲飲食">🍔 餐飲飲食</option>
+                                <option value="交通出行">🚗 交通出行</option>
+                                <option value="日常購物">🛒 日常購物</option>
+                                <option value="娛樂休閒">🎮 娛樂休閒</option>
+                                <option value="薪資收入">💰 薪水收入</option>
+                                <option value="投資收益">📈 投資收益</option>
+                                <option value="其他">📦 其他</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-xs text-ios-grayText">帳戶</label>
+                            <select id="input-account" class="w-full mt-1 p-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-sm outline-none">
+                                <option value="現金">💵 現金</option>
+                                <option value="國泰世華">🏦 國泰世華</option>
+                                <option value="玉山信用卡">💳 玉山信用卡</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="text-xs text-ios-grayText">備註</label>
+                        <input id="input-note" type="text" placeholder="例：午餐便當、飲料..." class="w-full mt-1 p-2.5 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-sm outline-none">
+                    </div>
+                </div>
+
+                <button onclick="saveTransaction()" class="w-full py-3 bg-ios-blue text-white font-bold rounded-2xl shadow-lg ios-btn-press">儲存紀錄</button>
+            </div>
+        </div>
+
+        <!-- Add Stock Modal -->
+        <div id="stock-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end justify-center hidden">
+            <div class="w-full max-w-md bg-ios-cardLight dark:bg-ios-cardDark rounded-t-3xl p-5 space-y-4 animate-slide-up border-t border-zinc-700">
+                <div class="flex justify-between items-center">
+                    <h3 class="text-lg font-bold">新增存股持股</h3>
+                    <button onclick="closeStockModal()" class="w-8 h-8 rounded-full bg-zinc-200 dark:bg-zinc-800 text-zinc-500 flex items-center justify-center">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+
+                <div class="space-y-3">
+                    <div class="grid grid-cols-3 gap-2">
+                        <div class="col-span-1">
+                            <label class="text-xs text-ios-grayText">代號</label>
+                            <input id="stock-input-code" type="text" placeholder="2330" class="w-full mt-1 p-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-sm outline-none">
+                        </div>
+                        <div class="col-span-2">
+                            <label class="text-xs text-ios-grayText">股票名稱</label>
+                            <input id="stock-input-name" type="text" placeholder="台積電" class="w-full mt-1 p-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-sm outline-none">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="text-xs text-ios-grayText">持有股數</label>
+                            <input id="stock-input-shares" type="number" placeholder="1000" class="w-full mt-1 p-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-sm outline-none">
+                        </div>
+                        <div>
+                            <label class="text-xs text-ios-grayText">平均成本</label>
+                            <input id="stock-input-cost" type="number" placeholder="620" class="w-full mt-1 p-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-sm outline-none">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="text-xs text-ios-grayText">現價 (TWD)</label>
+                            <input id="stock-input-price" type="number" placeholder="960" class="w-full mt-1 p-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-sm outline-none">
+                        </div>
+                        <div>
+                            <label class="text-xs text-ios-grayText">每股預估年股利</label>
+                            <input id="stock-input-dividend" type="number" placeholder="16" class="w-full mt-1 p-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-sm outline-none">
+                        </div>
+                    </div>
+                </div>
+
+                <button onclick="saveStockHolding()" class="w-full py-3 bg-ios-blue text-white font-bold rounded-2xl shadow-lg ios-btn-press">加入股票庫存</button>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // State Store
+        let transactions = [
+            { id: 1, date: '2026-10-01', category: '餐飲飲食', icon: 'fa-utensils', color: 'bg-orange-500', note: '星巴克咖啡與早餐', account: '玉山信用卡', amount: -215 },
+            { id: 2, date: '2026-10-01', category: '日常購物', icon: 'fa-cart-shopping', color: 'bg-blue-500', note: '全家便利商店發票', account: '現金', amount: -180 },
+            { id: 3, date: '2026-09-30', category: '薪資收入', icon: 'fa-money-bill-wave', color: 'bg-emerald-500', note: '十月份薪資入帳', account: '國泰世華', amount: 65000 },
+            { id: 4, date: '2026-09-28', category: '交通出行', icon: 'fa-car', color: 'bg-indigo-500', note: '加油站自助加油', account: '玉山信用卡', amount: -1250 }
+        ];
+
+        let recurringItems = [
+            { id: 1, name: '房屋租金', cycle: '每月 1 日自動扣款', amount: -22000, icon: 'fa-house', color: 'bg-purple-500', account: '國泰世華' },
+            { id: 2, name: 'Netflix 4K 家庭方案', cycle: '每月 15 日定期扣款', amount: -390, icon: 'fa-tv', color: 'bg-rose-600', account: '玉山信用卡' },
+            { id: 3, name: 'Spotify Music', cycle: '每月 20 日定期扣款', amount: -198, icon: 'fa-music', color: 'bg-emerald-600', account: '玉山信用卡' },
+            { id: 4, name: '公司月薪薪資', cycle: '每月 5 日固定入帳', amount: 65000, icon: 'fa-building-columns', color: 'bg-blue-600', account: '國泰世華' }
+        ];
+
+        let stockHoldings = [
+            { id: 1, code: '2330', name: '台積電', shares: 1000, avgCost: 620, currentPrice: 960, dividendPerShare: 16 },
+            { id: 2, code: '0050', name: '元大台灣50', shares: 3000, avgCost: 135, currentPrice: 172, dividendPerShare: 5.2 },
+            { id: 3, code: '00878', name: '國泰永續高股息', shares: 10000, avgCost: 20.5, currentPrice: 22.8, dividendPerShare: 1.6 }
+        ];
+
+        let invoiceFeed = [
+            { id: 1, store: '7-ELEVEN 門市', code: 'AB-88291039', amount: 125, date: '2026-10-01 12:30' },
+            { id: 2, store: '全聯福利中心', code: 'AB-77102948', amount: 642, date: '2026-09-30 18:15' },
+            { id: 3, store: '摩斯漢堡', code: 'AB-66192834', amount: 210, date: '2026-09-29 08:45' }
+        ];
+
+        let currentTxType = 'expense';
+        let currentBarcode = '/AB12345';
+
+        // App Initialization
+        window.onload = function() {
+            updateClock();
+            setInterval(updateClock, 1000);
+            
+            renderTransactions();
+            renderRecurring();
+            renderStocks();
+            renderInvoiceFeed();
+            generateBarcode(currentBarcode);
+        };
+
+        function updateClock() {
+            const now = new Date();
+            const hours = String(now.getHours()).padStart(2, '0');
+            const mins = String(now.getMinutes()).padStart(2, '0');
+            document.getElementById('clock').innerText = `${hours}:${mins}`;
+        }
+
+        function toggleDarkMode() {
+            const html = document.documentElement;
+            const icon = document.getElementById('theme-icon');
+            if (html.classList.contains('dark')) {
+                html.classList.remove('dark');
+                icon.className = 'fa-solid fa-sun';
+            } else {
+                html.classList.add('dark');
+                icon.className = 'fa-solid fa-moon';
+            }
+        }
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-page').forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll('.nav-item').forEach(el => {
+                el.classList.remove('text-ios-blue');
+                el.classList.add('text-ios-grayText');
+            });
+
+            document.getElementById(`tab-${tabId}`).classList.remove('hidden');
+            const activeNav = document.getElementById(`nav-${tabId}`);
+            activeNav.classList.remove('text-ios-grayText');
+            activeNav.classList.add('text-ios-blue');
+        }
+
+        function renderTransactions() {
+            const container = document.getElementById('transaction-list-container');
+            container.innerHTML = '';
+
+            let net = 0, income = 0, expense = 0;
+            transactions.forEach(t => {
+                if (t.amount > 0) income += t.amount;
+                else expense += Math.abs(t.amount);
+            });
+            net = income - expense;
+
+            document.getElementById('monthly-net').innerText = `$${net.toLocaleString()}`;
+            document.getElementById('monthly-income').innerText = `+$${income.toLocaleString()}`;
+            document.getElementById('monthly-expense').innerText = `-$${expense.toLocaleString()}`;
+
+            const listCard = document.createElement('div');
+            listCard.className = 'bg-ios-cardLight dark:bg-ios-cardDark rounded-2xl divide-y divide-zinc-200 dark:divide-ios-separatorDark shadow-sm border border-zinc-200 dark:border-zinc-800/80';
+
+            transactions.forEach(tx => {
+                const item = document.createElement('div');
+                item.className = 'p-3.5 flex items-center justify-between ios-btn-press';
+                const isInc = tx.amount > 0;
+                item.innerHTML = `
+                    <div class="flex items-center space-x-3">
+                        <div class="w-10 h-10 rounded-full ${tx.color || 'bg-blue-500'} text-white flex items-center justify-center shrink-0">
+                            <i class="fa-solid ${tx.icon || 'fa-receipt'}"></i>
+                        </div>
+                        <div>
+                            <div class="font-semibold text-sm">${tx.category} <span class="text-xs font-normal text-ios-grayText">(${tx.account})</span></div>
+                            <div class="text-xs text-ios-grayText mt-0.5">${tx.note || tx.date}</div>
+                        </div>
+                    </div>
+                    <div class="font-bold text-sm ${isInc ? 'text-emerald-500' : 'text-slate-900 dark:text-white'}">
+                        ${isInc ? '+' : ''}$${tx.amount.toLocaleString()}
+                    </div>
+                `;
+                listCard.appendChild(item);
+            });
+
+            container.appendChild(listCard);
+        }
+
+        function renderRecurring() {
+            const container = document.getElementById('recurring-items-container');
+            container.innerHTML = '';
+
+            let totalExp = 0, totalInc = 0;
+
+            recurringItems.forEach(item => {
+                if (item.amount < 0) totalExp += Math.abs(item.amount);
+                else totalInc += item.amount;
+
+                const row = document.createElement('div');
+                row.className = 'p-3.5 flex items-center justify-between';
+                row.innerHTML = `
+                    <div class="flex items-center space-x-3">
+                        <div class="w-9 h-9 rounded-xl ${item.color} text-white flex items-center justify-center">
+                            <i class="fa-solid ${item.icon}"></i>
+                        </div>
+                        <div>
+                            <div class="font-semibold text-sm">${item.name}</div>
+                            <div class="text-xs text-ios-grayText">${item.cycle} • ${item.account}</div>
+                        </div>
+                    </div>
+                    <div class="font-bold text-sm ${item.amount > 0 ? 'text-emerald-500' : 'text-rose-500'}">
+                        ${item.amount > 0 ? '+' : ''}$${item.amount.toLocaleString()}
+                    </div>
+                `;
+                container.appendChild(row);
+            });
+
+            document.getElementById('recurring-total-expense').innerText = `-$${totalExp.toLocaleString()}`;
+            document.getElementById('recurring-total-income').innerText = `+$${totalInc.toLocaleString()}`;
+        }
+
+        function renderStocks() {
+            const container = document.getElementById('stock-list-container');
+            container.innerHTML = '';
+
+            let totalMarketVal = 0;
+            let totalCostVal = 0;
+            let totalAnnualDividend = 0;
+
+            stockHoldings.forEach(s => {
+                const marketVal = s.shares * s.currentPrice;
+                const costVal = s.shares * s.avgCost;
+                const profit = marketVal - costVal;
+                const profitPct = ((profit / costVal) * 100).toFixed(1);
+                const dividendTotal = s.shares * s.dividendPerShare;
+
+                totalMarketVal += marketVal;
+                totalCostVal += costVal;
+                totalAnnualDividend += dividendTotal;
+
+                const isGain = profit >= 0;
+
+                const card = document.createElement('div');
+                card.className = 'bg-ios-cardLight dark:bg-ios-cardDark rounded-2xl p-4 shadow-sm border border-zinc-200 dark:border-zinc-800/80 space-y-2';
+                card.innerHTML = `
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <span class="font-bold text-base">${s.name}</span>
+                            <span class="text-xs text-ios-grayText ml-1.5">${s.code}</span>
+                        </div>
+                        <div class="text-right">
+                            <span class="font-bold text-base">$${marketVal.toLocaleString()}</span>
+                            <span class="text-xs block font-semibold ${isGain ? 'tw-gain' : 'tw-loss'}">
+                                ${isGain ? '+' : ''}$${profit.toLocaleString()} (${isGain ? '+' : ''}${profitPct}%)
+                            </span>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-3 gap-1 pt-2 border-t border-zinc-100 dark:border-zinc-800/60 text-xs text-ios-grayText">
+                        <div>持股: <span class="font-semibold text-slate-800 dark:text-zinc-200">${s.shares.toLocaleString()} 股</span></div>
+                        <div>成本: <span class="font-semibold text-slate-800 dark:text-zinc-200">$${s.avgCost}</span></div>
+                        <div>年股利: <span class="font-semibold text-amber-500">$${dividendTotal.toLocaleString()}</span></div>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+
+            const totalProfit = totalMarketVal - totalCostVal;
+            const totalProfitPct = ((totalProfit / totalCostVal) * 100).toFixed(2);
+            const isTotalGain = totalProfit >= 0;
+
+            document.getElementById('stock-total-val').innerText = `$${totalMarketVal.toLocaleString()}`;
+            document.getElementById('stock-total-profit').innerText = `${isTotalGain ? '+' : ''}$${totalProfit.toLocaleString()} (${isTotalGain ? '+' : ''}${totalProfitPct}%)`;
+            document.getElementById('stock-total-profit').className = `text-base font-bold ${isTotalGain ? 'tw-gain' : 'tw-loss'}`;
+            document.getElementById('stock-total-dividend').innerText = `$${totalAnnualDividend.toLocaleString()}`;
+        }
+
+        function generateBarcode(code) {
+            try {
+                JsBarcode("#barcode-svg", code, {
+                    format: "CODE39",
+                    width: 2,
+                    height: 80,
+                    displayValue: false,
+                    lineColor: "#000000",
+                    background: "#ffffff"
+                });
+            } catch (e) {
+                console.error("Barcode generation failed", e);
+            }
+        }
+
+        function renderInvoiceFeed() {
+            const container = document.getElementById('invoice-feed-container');
+            container.innerHTML = '';
+
+            invoiceFeed.forEach(inv => {
+                const row = document.createElement('div');
+                row.className = 'p-3 flex justify-between items-center';
+                row.innerHTML = `
+                    <div class="flex items-center space-x-3">
+                        <div class="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/40 text-ios-blue flex items-center justify-center text-xs">
+                            <i class="fa-solid fa-receipt"></i>
+                        </div>
+                        <div>
+                            <div class="font-semibold text-sm">${inv.store}</div>
+                            <div class="text-[11px] text-ios-grayText">${inv.code} • ${inv.date}</div>
+                        </div>
+                    </div>
+                    <span class="font-bold text-sm">-$${inv.amount}</span>
+                `;
+                container.appendChild(row);
+            });
+        }
+
+        function syncInvoices() {
+            const btn = event.currentTarget;
+            btn.classList.add('animate-spin');
+            setTimeout(() => {
+                btn.classList.remove('animate-spin');
+            }, 800);
+        }
+
+        function toggleMaxBrightness() {
+            const container = document.getElementById('app-container');
+            container.classList.toggle('brightness-125');
+            const btn = document.getElementById('bright-btn');
+            btn.innerText = container.classList.contains('brightness-125') ? '恢復' : '螢幕增亮';
+        }
+
+        function openAddModal() {
+            document.getElementById('add-modal').classList.remove('hidden');
+        }
+        function closeAddModal() {
+            document.getElementById('add-modal').classList.add('hidden');
+        }
+
+        function openStockModal() {
+            document.getElementById('stock-modal').classList.remove('hidden');
+        }
+        function closeStockModal() {
+            document.getElementById('stock-modal').classList.add('hidden');
+        }
+
+        function setTxType(type) {
+            currentTxType = type;
+            const expBtn = document.getElementById('type-expense-btn');
+            const incBtn = document.getElementById('type-income-btn');
+
+            if (type === 'expense') {
+                expBtn.className = 'py-1.5 rounded-lg bg-white dark:bg-zinc-700 shadow-sm text-center';
+                incBtn.className = 'py-1.5 rounded-lg text-center text-ios-grayText';
+            } else {
+                incBtn.className = 'py-1.5 rounded-lg bg-white dark:bg-zinc-700 shadow-sm text-center';
+                expBtn.className = 'py-1.5 rounded-lg text-center text-ios-grayText';
+            }
+        }
+
+        function saveTransaction() {
+            const amountInput = parseFloat(document.getElementById('input-amount').value);
+            if (!amountInput || amountInput <= 0) return;
+
+            const category = document.getElementById('input-category').value;
+            const account = document.getElementById('input-account').value;
+            const note = document.getElementById('input-note').value || category;
+
+            const newTx = {
+                id: Date.now(),
+                date: new Date().toISOString().split('T')[0],
+                category: category.replace(/[^\u4e00-\u9fa5]/g, ''),
+                icon: category.includes('餐飲') ? 'fa-utensils' : category.includes('交通') ? 'fa-car' : 'fa-basket-shopping',
+                color: currentTxType === 'income' ? 'bg-emerald-500' : 'bg-blue-500',
+                note: note,
+                account: account,
+                amount: currentTxType === 'income' ? amountInput : -amountInput
+            };
+
+            transactions.unshift(newTx);
+            renderTransactions();
+            closeAddModal();
+            document.getElementById('input-amount').value = '';
+            document.getElementById('input-note').value = '';
+        }
+
+        function saveStockHolding() {
+            const code = document.getElementById('stock-input-code').value;
+            const name = document.getElementById('stock-input-name').value;
+            const shares = parseInt(document.getElementById('stock-input-shares').value);
+            const cost = parseFloat(document.getElementById('stock-input-cost').value);
+            const price = parseFloat(document.getElementById('stock-input-price').value);
+            const div = parseFloat(document.getElementById('stock-input-dividend').value) || 0;
+
+            if (!code || !name || !shares || !cost || !price) return;
+
+            stockHoldings.push({
+                id: Date.now(),
+                code, name, shares, avgCost: cost, currentPrice: price, dividendPerShare: div
+            });
+
+            renderStocks();
+            closeStockModal();
+        }
+
+        function showInvoiceSettings() {
+            const input = prompt('請輸入您的電子發票手機條碼（範例 /AB12345）：', currentBarcode);
+            if (input && input.startsWith('/')) {
+                currentBarcode = input;
+                document.getElementById('barcode-code-display').innerText = currentBarcode;
+                generateBarcode(currentBarcode);
+            }
+        }
+    </script>
+</body>
+</html>
